@@ -7,13 +7,18 @@ class Platformer extends Phaser.Scene {
         // variables and settings
         this.ACCELERATION = 200;
         this.DRAG = 500;    // DRAG < ACCELERATION = icy slide
-        this.physics.world.gravity.y = 1500;
-        this.JUMP_VELOCITY = -470;
+        this.physics.world.gravity.y = 1000;
+        this.JUMP_VELOCITY = -300;
         this.PARTICLE_VELOCITY = 30;
         this.SCALE = 3.0;
     }
 
     create() {
+        this.bgMusic  = this.sound.add('backGround',  { volume: 0.5, loop: true });
+        this.bgMusic.play();
+
+        this.jumps = 0;
+
         // set up player avatar
         my.sprite.player = this.physics.add.sprite(3*18, 15*18, "platformer_characters", "tile_0000.png");
         my.sprite.player.setCollideWorldBounds(true);
@@ -23,16 +28,21 @@ class Platformer extends Phaser.Scene {
         this.map = this.add.tilemap("platformer-level-1", 18, 18, 120, 20);
         this.physics.world.setBounds(0, 0, this.map.widthInPixels, this.map.heightInPixels);
 
+        this.background = this.add.tileSprite(0, 0, 1640, 900, "sky");
+        this.background.setOrigin(0, 0);
+        this.background.setScrollFactor(0.3, 1);
+        this.background.setDepth(-1);
+
         // Add a tileset to the map
         // First parameter: name we gave the tileset in Tiled
         // Second parameter: key for the tilesheet (from this.load.image in Load.js)
         this.tileset = this.map.addTilesetImage("kenny_tilemap_packed", "tilemap_tiles");
-        this.backsheet = this.map.addTilesetImage("tilemap_backgrounds", "tilemap_backgrounds");
+        // this.backsheet = this.map.addTilesetImage("tilemap_backgrounds", "tilemap_backgrounds");
         // Create a layer
         this.groundLayer = this.map.createLayer("Ground-n-Platforms", this.tileset, 0, 0);
-        this.backLayer = this.map.createLayer("back", this.backsheet, 0, 0);
-        this.backLayer.setDepth(-1);
-        this.backLayer.ScrollFactorX = 2;
+        // this.backLayer = this.map.createLayer("back", this.backsheet, 0, 0);
+        // this.backLayer.setDepth(-1);
+
         // Make it collidable
         this.groundLayer.setCollisionByProperty({
             collides: true
@@ -68,7 +78,11 @@ class Platformer extends Phaser.Scene {
         });
         // this.movingPlatforms.bodymoves = false;
         //the player can stand on the platform
-        this.physics.add.collider(my.sprite.player, this.movingPlatforms);
+        this.physics.add.collider(my.sprite.player, this.movingPlatforms, (obj1, obj2) => {
+            if(my.sprite.player.body.blocked.down) {
+                this.jumps = 0;
+            }
+        });
         //platform to move up aand down
         
         // Create coins from Objects layer in tilemap
@@ -116,6 +130,7 @@ class Platformer extends Phaser.Scene {
             // TODO: start the coin collect particle effect here
             ////////////////////
             my.vfx.coin.emitParticleAt(obj2.x, obj2.y);
+            this.sound.play("coinCollects");
             this.coinCounter ++;
             this.coinCounts.setText("coins: "+String(this.coinCounter));
         });
@@ -158,12 +173,20 @@ class Platformer extends Phaser.Scene {
         });
             this.physics.world.enable(this.treasure, Phaser.Physics.Arcade.STATIC_BODY);
 
-        this.treasureCollider = this.physics.add.collider(my.sprite.player, this.treasure);
+        this.treasureCollider = this.physics.add.collider(my.sprite.player, this.treasure, (obj1, obj2) => {
+            if(my.sprite.player.body.blocked.down) {
+                this.jumps = 0;
+            }
+        });
         
 
         //bushes
         this.bushesGroup = this.add.group();
-        this.bushesCollider = this.physics.add.collider(my.sprite.player, this.bushesGroup);
+        this.bushesCollider = this.physics.add.collider(my.sprite.player, this.bushesGroup, (obj1, obj2) => {
+            if(my.sprite.player.body.blocked.down) {
+                this.jumps = 0;
+            }
+        });
 
         this.busheslayer = this.map.getObjectLayer("bushes");
         this.busheslayer.objects.forEach(bush =>{
@@ -195,10 +218,8 @@ class Platformer extends Phaser.Scene {
             obj2.destroy(); // remove coin on overlap
             this.haveKey = true;
             this.treasureCollider.destroy();
-            console.log("keyevent");
-            console.log(this.treasure);
+            this.sound.play("toolsCollects");
             this.physics.add.overlap(my.sprite.player, this.treasure, (obj1, obj2) => {
-                console.log(obj2);
                 obj2.destroy();
                 this.coinCounter = this.coinCounter + 30;
                 this.coinCounts.setText("coins: "+String(this.coinCounter));
@@ -211,8 +232,11 @@ class Platformer extends Phaser.Scene {
             if(this.haveCutter == false){
                 this.haveCutter = true;
                 this.bushesCollider.destroy();
+                this.sound.play("toolsCollects");
                 this.physics.add.overlap(my.sprite.player, this.bushesGroup, (obj1, obj2) => {
                     obj2.destroy();
+                    this.sound.play("bushes");
+
                 });
             }
         });
@@ -254,7 +278,11 @@ class Platformer extends Phaser.Scene {
 
 
         // Enable collision handling
-        this.physics.add.collider(my.sprite.player, this.groundLayer);
+        this.physics.add.collider(my.sprite.player, this.groundLayer, (obj1, obj2) => {
+            if(my.sprite.player.body.blocked.down) {
+                this.jumps = 0;
+            }
+        })
 
         // set up Phaser-provided cursor key input
         cursors = this.input.keyboard.createCursorKeys();
@@ -340,11 +368,16 @@ class Platformer extends Phaser.Scene {
         if(!my.sprite.player.body.blocked.down) {
             my.sprite.player.anims.play('jump');
         }
-        if(my.sprite.player.body.blocked.down && Phaser.Input.Keyboard.JustDown(cursors.up)) {
-            my.sprite.player.body.setVelocityY(this.JUMP_VELOCITY);
+        
+        if(Phaser.Input.Keyboard.JustDown(cursors.up)) {
+            if (this.jumps < 2){
+                this.jumps++;
+                my.sprite.player.body.setVelocityY(this.JUMP_VELOCITY);
+            } 
         }
 
         if(Phaser.Input.Keyboard.JustDown(this.rKey)) {
+            this.bgMusic.stop();
             this.scene.restart();
         }
 
@@ -353,15 +386,11 @@ class Platformer extends Phaser.Scene {
             my.sprite.player.x,
             my.sprite.player.y
         );
-        if(this.gameOver) {
-            if(Phaser.Input.Keyboard.JustDown(this.rKey)) {
-                this.scene.restart();
-            }
-            return;
-        }
+
         if(waterTile && waterTile.properties.water && !this.gameOver) {
             this.gameOver = true;
-
+            this.sound.play("fail");
+            this.bgMusic.stop();
             //player stop moving, and show the text
             my.sprite.player.setVelocity(0, 0);
             my.sprite.player.body.enable = false;
@@ -377,10 +406,14 @@ class Platformer extends Phaser.Scene {
         if(this.gameEnd){
             if(Phaser.Input.Keyboard.JustDown(this.rKey)) {
                 this.scene.restart();
+                
             }
             return;
         }
         if(flagTile && flagTile.properties.flag && !this.gameEnd){
+            this.gameEnd = true;
+            this.sound.play("victory");
+            this.bgMusic.stop();
             //player stop moving, and show the text
             my.sprite.player.setVelocity(0, 0);
             my.sprite.player.body.enable = false;
